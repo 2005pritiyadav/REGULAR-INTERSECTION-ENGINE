@@ -1,8 +1,5 @@
 import streamlit as st
-
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
+from itertools import product
 
 st.set_page_config(
     page_title="Regular Intersection Engine",
@@ -12,520 +9,449 @@ st.set_page_config(
 
 st.title("🔄 Regular Intersection Engine")
 st.write(
-    "Enter two DFAs and compute their cross-product DFA "
+    "Input two DFAs (M1 and M2) and compute their cross-product DFA "
     "for the intersection language L(M1) ∩ L(M2)."
 )
 
 st.divider()
 
 
-# ============================================================
-# FUNCTION TO PARSE COMMA-SEPARATED INPUT
-# ============================================================
+# ---------------------------------------------------------
+# FUNCTION TO READ DFA
+# ---------------------------------------------------------
 
-def parse_list(text):
-    return [x.strip() for x in text.split(",") if x.strip()]
+def parse_dfa(states_text, alphabet_text, start_state, final_text, transitions_text):
 
+    states = {x.strip() for x in states_text.split(",") if x.strip()}
+    alphabet = {x.strip() for x in alphabet_text.split(",") if x.strip()}
+    final_states = {x.strip() for x in final_text.split(",") if x.strip()}
+    start_state = start_state.strip()
 
-# ============================================================
-# FUNCTION TO CREATE TRANSITION TABLE
-# ============================================================
+    errors = []
 
-def create_transition_table(states, alphabet, prefix):
+    # Check states
+    if not states:
+        errors.append("States cannot be empty.")
+
+    # Check alphabet
+    if not alphabet:
+        errors.append("Alphabet cannot be empty.")
+
+    # Check start state
+    if start_state not in states:
+        errors.append(f"Start state '{start_state}' is not present in states.")
+
+    # Check final states
+    for state in final_states:
+        if state not in states:
+            errors.append(
+                f"Final state '{state}' is not present in states."
+            )
 
     transitions = {}
 
-    st.write("### Transition Function")
+    lines = transitions_text.strip().splitlines()
 
-    for state in states:
+    for line_number, line in enumerate(lines, start=1):
 
-        transitions[state] = {}
+        if not line.strip():
+            continue
 
-        cols = st.columns(len(alphabet) + 1)
+        parts = [x.strip() for x in line.split(",")]
 
-        cols[0].write(f"**{state}**")
+        if len(parts) != 3:
+            errors.append(
+                f"Transition line {line_number} must be: state,symbol,next_state"
+            )
+            continue
 
-        for i, symbol in enumerate(alphabet):
+        current, symbol, next_state = parts
 
-            value = cols[i + 1].text_input(
-                f"δ({state},{symbol})",
-                key=f"{prefix}_{state}_{symbol}"
+        if current not in states:
+            errors.append(
+                f"Line {line_number}: state '{current}' does not exist."
             )
 
-            transitions[state][symbol] = value.strip()
+        if symbol not in alphabet:
+            errors.append(
+                f"Line {line_number}: symbol '{symbol}' is not in alphabet."
+            )
 
-    return transitions
+        if next_state not in states:
+            errors.append(
+                f"Line {line_number}: next state '{next_state}' does not exist."
+            )
 
+        transitions[(current, symbol)] = next_state
 
-# ============================================================
-# VALIDATE DFA
-# ============================================================
-
-def validate_dfa(
-    states,
-    alphabet,
-    start_state,
-    final_states,
-    transitions
-):
-
-    if len(states) == 0:
-        return False, "States cannot be empty."
-
-    if len(alphabet) == 0:
-        return False, "Alphabet cannot be empty."
-
-    if start_state not in states:
-        return False, "Start state must belong to the set of states."
-
-    for final_state in final_states:
-
-        if final_state not in states:
-            return False, f"Final state {final_state} is not in states."
-
+    # Check DFA completeness
     for state in states:
-
-        if state not in transitions:
-            return False, f"Missing transitions for state {state}."
-
         for symbol in alphabet:
-
-            if symbol not in transitions[state]:
-                return False, f"Missing transition for {state},{symbol}."
-
-            destination = transitions[state][symbol]
-
-            if destination == "":
-                return False, (
-                    f"Transition δ({state},{symbol}) is empty."
+            if (state, symbol) not in transitions:
+                errors.append(
+                    f"Missing transition: δ({state}, {symbol})"
                 )
 
-            if destination not in states:
-                return False, (
-                    f"δ({state},{symbol}) = {destination}, "
-                    f"but {destination} is not a valid state."
-                )
+    return {
+        "states": states,
+        "alphabet": alphabet,
+        "start": start_state,
+        "final": final_states,
+        "transitions": transitions
+    }, errors
 
-    return True, "Valid DFA"
+
+# ---------------------------------------------------------
+# PREDEFINED BINARY DFAs
+# ---------------------------------------------------------
+
+PRESETS = {
+    "Ends with 10": {
+        "states": "q0,q1,q2",
+        "alphabet": "0,1",
+        "start": "q0",
+        "final": "q2",
+        "transitions": "q0,0,q0\nq0,1,q1\nq1,0,q2\nq1,1,q1\nq2,0,q0\nq2,1,q1",
+    },
+    "Even number of 0s": {
+        "states": "p0,p1",
+        "alphabet": "0,1",
+        "start": "p0",
+        "final": "p0",
+        "transitions": "p0,0,p1\np0,1,p0\np1,0,p0\np1,1,p1",
+    },
+    "Starts with 1": {
+        "states": "s0,s1,dead",
+        "alphabet": "0,1",
+        "start": "s0",
+        "final": "s1",
+        "transitions": "s0,0,dead\ns0,1,s1\ns1,0,s1\ns1,1,s1\ndead,0,dead\ndead,1,dead",
+    },
+    "Contains 11": {
+        "states": "a0,a1,a2",
+        "alphabet": "0,1",
+        "start": "a0",
+        "final": "a2",
+        "transitions": "a0,0,a0\na0,1,a1\na1,0,a0\na1,1,a2\na2,0,a2\na2,1,a2",
+    },
+    "Ends with 01": {
+        "states": "r0,r1,r2",
+        "alphabet": "0,1",
+        "start": "r0",
+        "final": "r2",
+        "transitions": "r0,0,r1\nr0,1,r0\nr1,0,r1\nr1,1,r2\nr2,0,r1\nr2,1,r0",
+    },
+}
 
 
-# ============================================================
-# DFA 1 AND DFA 2 INPUT
-# ============================================================
+def fill_dfa(prefix, name):
+    p = PRESETS[name]
+    st.session_state[f"{prefix}_states"] = p["states"]
+    st.session_state[f"{prefix}_alphabet"] = p["alphabet"]
+    st.session_state[f"{prefix}_start"] = p["start"]
+    st.session_state[f"{prefix}_final"] = p["final"]
+    st.session_state[f"{prefix}_transitions"] = p["transitions"]
+
+
+def load_preset(prefix):
+    fill_dfa(prefix, st.session_state[f"{prefix}_choice"])
+
+
+def load_demo():
+    fill_dfa("m1", "Ends with 10")
+    fill_dfa("m2", "Even number of 0s")
+    st.session_state["m1_choice"] = "Ends with 10"
+    st.session_state["m2_choice"] = "Even number of 0s"
+
+
+# ---------------------------------------------------------
+# DFA INPUT
+# ---------------------------------------------------------
+
+st.button(
+    "⚡ Load demo: 'Ends with 10' ∩ 'Even number of 0s'",
+    on_click=load_demo
+)
 
 col1, col2 = st.columns(2)
 
 
-# ============================================================
-# DFA 1
-# ============================================================
-
 with col1:
 
-    st.header("🟦 DFA 1")
+    st.header("DFA M1")
 
-    states1_text = st.text_input(
-        "States of DFA 1",
-        value="q0,q1,q2",
-        key="states1"
+    st.selectbox("Predefined DFA", list(PRESETS), key="m1_choice")
+    st.button("📥 Load into M1", on_click=load_preset, args=("m1",))
+
+    m1_states = st.text_input(
+        "States of M1",
+        placeholder="q0,q1,q2",
+        key="m1_states"
     )
 
-    alphabet1_text = st.text_input(
-        "Alphabet of DFA 1",
-        value="0,1",
-        key="alphabet1"
+    m1_alphabet = st.text_input(
+        "Alphabet of M1",
+        placeholder="0,1",
+        key="m1_alphabet"
     )
 
-    start1 = st.text_input(
-        "Start State of DFA 1",
-        value="q0",
-        key="start1"
+    m1_start = st.text_input(
+        "Start State of M1",
+        placeholder="q0",
+        key="m1_start"
     )
 
-    final1_text = st.text_input(
-        "Final States of DFA 1",
-        value="q2",
-        key="final1"
+    m1_final = st.text_input(
+        "Final States of M1",
+        placeholder="q2",
+        key="m1_final"
     )
 
-    states1 = parse_list(states1_text)
-    alphabet1 = parse_list(alphabet1_text)
-    final1 = parse_list(final1_text)
-
-    st.write("#### Enter Transitions")
-
-    transitions1 = create_transition_table(
-        states1,
-        alphabet1,
-        "dfa1"
+    m1_transitions = st.text_area(
+        "Transitions of M1",
+        placeholder="q0,0,q1\nq0,1,q0\nq1,0,q2\nq1,1,q0\nq2,0,q2\nq2,1,q2",
+        height=180,
+        key="m1_transitions"
     )
 
-
-# ============================================================
-# DFA 2
-# ============================================================
 
 with col2:
 
-    st.header("🟩 DFA 2")
+    st.header("DFA M2")
 
-    states2_text = st.text_input(
-        "States of DFA 2",
-        value="p0,p1",
-        key="states2"
+    st.selectbox("Predefined DFA", list(PRESETS), index=1, key="m2_choice")
+    st.button("📥 Load into M2", on_click=load_preset, args=("m2",))
+
+    m2_states = st.text_input(
+        "States of M2",
+        placeholder="p0,p1",
+        key="m2_states"
     )
 
-    alphabet2_text = st.text_input(
-        "Alphabet of DFA 2",
-        value="0,1",
-        key="alphabet2"
+    m2_alphabet = st.text_input(
+        "Alphabet of M2",
+        placeholder="0,1",
+        key="m2_alphabet"
     )
 
-    start2 = st.text_input(
-        "Start State of DFA 2",
-        value="p0",
-        key="start2"
+    m2_start = st.text_input(
+        "Start State of M2",
+        placeholder="p0",
+        key="m2_start"
     )
 
-    final2_text = st.text_input(
-        "Final States of DFA 2",
-        value="p1",
-        key="final2"
+    m2_final = st.text_input(
+        "Final States of M2",
+        placeholder="p1",
+        key="m2_final"
     )
 
-    states2 = parse_list(states2_text)
-    alphabet2 = parse_list(alphabet2_text)
-    final2 = parse_list(final2_text)
-
-    st.write("#### Enter Transitions")
-
-    transitions2 = create_transition_table(
-        states2,
-        alphabet2,
-        "dfa2"
+    m2_transitions = st.text_area(
+        "Transitions of M2",
+        placeholder="p0,0,p0\np0,1,p1\np1,0,p0\np1,1,p1",
+        height=180,
+        key="m2_transitions"
     )
 
-
-# ============================================================
-# COMPUTE BUTTON
-# ============================================================
 
 st.divider()
 
-compute = st.button(
-    "🔄 Compute Intersection DFA",
+calculate = st.button(
+    "⚙️ Compute Intersection DFA",
     type="primary",
     use_container_width=True
 )
 
 
-# ============================================================
-# COMPUTATION
-# ============================================================
+# ---------------------------------------------------------
+# COMPUTE CROSS PRODUCT
+# ---------------------------------------------------------
 
-if compute:
+# Remember that the user pressed Compute, so results stay visible
+# when the "Test String" button below triggers a rerun.
+if calculate:
+    st.session_state["computed"] = True
 
-    # --------------------------------------------------------
-    # Check alphabets
-    # --------------------------------------------------------
+if st.session_state.get("computed"):
 
-    if set(alphabet1) != set(alphabet2):
+    m1, errors1 = parse_dfa(
+        m1_states,
+        m1_alphabet,
+        m1_start,
+        m1_final,
+        m1_transitions
+    )
 
-        st.error(
-            "❌ The alphabets of DFA 1 and DFA 2 must be the same."
+    m2, errors2 = parse_dfa(
+        m2_states,
+        m2_alphabet,
+        m2_start,
+        m2_final,
+        m2_transitions
+    )
+
+    all_errors = errors1 + errors2
+
+    # Alphabet must be same
+    if m1["alphabet"] != m2["alphabet"]:
+        all_errors.append(
+            "M1 and M2 must have the same alphabet for intersection."
         )
 
-        st.stop()
+    if all_errors:
 
+        st.error("❌ Invalid DFA Input")
 
-    # --------------------------------------------------------
-    # Validate DFA 1
-    # --------------------------------------------------------
+        for error in all_errors:
+            st.write("•", error)
 
-    valid1, message1 = validate_dfa(
-        states1,
-        alphabet1,
-        start1,
-        final1,
-        transitions1
-    )
+    else:
 
+        st.success("✅ Both DFAs are valid.")
 
-    # --------------------------------------------------------
-    # Validate DFA 2
-    # --------------------------------------------------------
-
-    valid2, message2 = validate_dfa(
-        states2,
-        alphabet2,
-        start2,
-        final2,
-        transitions2
-    )
-
-
-    if not valid1:
-
-        st.error(f"❌ DFA 1 Error: {message1}")
-
-        st.stop()
-
-
-    if not valid2:
-
-        st.error(f"❌ DFA 2 Error: {message2}")
-
-        st.stop()
-
-
-    st.success("✅ Both DFAs are valid!")
-
-
-    # ========================================================
-    # CROSS PRODUCT STATES
-    # ========================================================
-
-    st.divider()
-
-    st.header("🎯 Intersection DFA")
-
-
-    product_states = []
-
-    for q in states1:
-
-        for p in states2:
-
-            product_states.append((q, p))
-
-
-    # ========================================================
-    # PRODUCT START STATE
-    # ========================================================
-
-    product_start = (start1, start2)
-
-
-    # ========================================================
-    # PRODUCT FINAL STATES
-    # ========================================================
-
-    product_final = []
-
-    for q in states1:
-
-        for p in states2:
-
-            if q in final1 and p in final2:
-
-                product_final.append((q, p))
-
-
-    # ========================================================
-    # PRODUCT TRANSITIONS
-    # ========================================================
-
-    product_transitions = {}
-
-    for q, p in product_states:
-
-        product_transitions[(q, p)] = {}
-
-        for symbol in alphabet1:
-
-            next_q = transitions1[q][symbol]
-
-            next_p = transitions2[p][symbol]
-
-            product_transitions[(q, p)][symbol] = (
-                next_q,
-                next_p
+        # Product states
+        product_states = list(
+            product(
+                sorted(m1["states"]),
+                sorted(m2["states"])
             )
+        )
 
+        # Start state
+        product_start = (
+            m1["start"],
+            m2["start"]
+        )
 
-    # ========================================================
-    # DISPLAY PRODUCT STATES
-    # ========================================================
+        # Final states = F1 × F2
+        product_final = [
+            (q, p)
+            for q in sorted(m1["final"])
+            for p in sorted(m2["final"])
+        ]
 
-    st.subheader("Product States")
+        # Product transitions
+        product_transitions = {}
 
-    product_state_text = ", ".join(
-        f"({q},{p})"
-        for q, p in product_states
-    )
+        for q, p in product_states:
 
-    st.write(product_state_text)
+            for symbol in sorted(m1["alphabet"]):
 
+                next_q = m1["transitions"][(q, symbol)]
+                next_p = m2["transitions"][(p, symbol)]
 
-    # ========================================================
-    # DISPLAY START STATE
-    # ========================================================
+                product_transitions[
+                    ((q, p), symbol)
+                ] = (next_q, next_p)
 
-    st.write(
-        f"**Start State:** "
-        f"({product_start[0]},{product_start[1]})"
-    )
+        st.divider()
 
+        st.header("🎯 Cross-Product DFA")
 
-    # ========================================================
-    # DISPLAY FINAL STATES
-    # ========================================================
+        st.subheader("Product States")
 
-    if product_final:
+        state_text = ", ".join(
+            f"({q},{p})"
+            for q, p in product_states
+        )
 
-        final_text = ", ".join(
+        st.code(state_text)
+
+        st.write(
+            "**Start State:**",
+            f"({product_start[0]},{product_start[1]})"
+        )
+
+        final_text_out = ", ".join(
             f"({q},{p})"
             for q, p in product_final
         )
 
         st.write(
-            f"**Final States:** {final_text}"
+            "**Final States:**",
+            final_text_out if final_text_out else "None"
         )
 
-    else:
+        # Transition table
+        st.subheader("Transition Table")
 
-        st.write(
-            "**Final States:** None"
+        table_data = []
+
+        for state in product_states:
+
+            row = {
+                "Product State": f"({state[0]},{state[1]})"
+            }
+
+            for symbol in sorted(m1["alphabet"]):
+
+                next_state = product_transitions[
+                    (state, symbol)
+                ]
+
+                row[symbol] = (
+                    f"({next_state[0]},{next_state[1]})"
+                )
+
+            table_data.append(row)
+
+        st.dataframe(
+            table_data,
+            use_container_width=True,
+            hide_index=True
         )
 
+        st.success(
+            "The cross-product DFA represents "
+            "L(M1) ∩ L(M2)."
+        )
 
-    # ========================================================
-    # TRANSITION TABLE
-    # ========================================================
+        # -------------------------------------------------
+        # STRING TEST
+        # -------------------------------------------------
 
-    st.subheader("Transition Table")
+        st.divider()
 
-    table_data = []
+        st.header("🧪 Test a String")
 
-    for state in product_states:
+        test_string = st.text_input(
+            "Enter a string",
+            placeholder="Example: 0101"
+        )
 
-        row = {}
-
-        q, p = state
-
-        row["Product State"] = f"({q},{p})"
-
-        for symbol in alphabet1:
-
-            next_state = product_transitions[state][symbol]
-
-            row[symbol] = (
-                f"({next_state[0]},{next_state[1]})"
-            )
-
-        table_data.append(row)
-
-
-    st.table(table_data)
-
-
-    st.success(
-        "✅ Cross-product DFA successfully created!"
-    )
-
-
-    # ========================================================
-    # TEST A STRING
-    # ========================================================
-
-    st.divider()
-
-    st.header("🧪 Test a String")
-
-    test_string = st.text_input(
-        "Enter a string to test",
-        placeholder="Example: 0101",
-        key="test_string"
-    )
-
-    test_button = st.button(
-        "🔍 Test String"
-    )
-
-
-    if test_button:
-
-        if test_string == "":
-
-            st.warning(
-                "⚠️ Please enter a string first."
-            )
-
-        else:
+        if st.button("🔍 Test String"):
 
             current = product_start
-
-            path = [current]
-
-            valid_string = True
-
-
-            # ------------------------------------------------
-            # PROCESS STRING
-            # ------------------------------------------------
+            valid = True
 
             for symbol in test_string:
 
-                if symbol not in alphabet1:
+                if symbol not in m1["alphabet"]:
 
                     st.error(
-                        f"❌ Invalid symbol '{symbol}'. "
-                        f"Allowed symbols: "
-                        f"{', '.join(alphabet1)}"
+                        f"❌ Invalid symbol '{symbol}' "
+                        "in input string."
                     )
 
-                    valid_string = False
-
+                    valid = False
                     break
 
-
                 current = product_transitions[
-                    current
-                ][symbol]
+                    (current, symbol)
+                ]
 
-                path.append(current)
-
-
-            # ------------------------------------------------
-            # DISPLAY RESULT
-            # ------------------------------------------------
-
-            if valid_string:
-
-                st.subheader("State Traversal")
-
-                path_text = " → ".join(
-                    f"({q},{p})"
-                    for q, p in path
-                )
-
-                st.info(path_text)
-
+            if valid:
 
                 if current in product_final:
 
                     st.success(
-                        f"✅ ACCEPTED\n\n"
-                        f"Final state reached: "
+                        f"✅ ACCEPTED — Final state reached: "
                         f"({current[0]},{current[1]})"
                     )
 
                 else:
 
                     st.error(
-                        f"❌ REJECTED\n\n"
-                        f"Current state: "
-                        f"({current[0]},{current[1]})"
+                        f"❌ REJECTED — Final state not reached. "
+                        f"Current state: ({current[0]},{current[1]})"
                     )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.divider()
-
-st.caption(
-    "Regular Intersection Engine | "
-    "Cross-Product Construction of DFA"
-)
